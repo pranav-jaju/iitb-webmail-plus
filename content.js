@@ -357,26 +357,35 @@
   const START_RE = /\b(from|starts?|starting|begins?|beginning|opens?|opening|released?|commenc\w*|available|posted|uploaded|published|sent|held on \w+ and)\b[^.]{0,30}$/i;
   const DUE_RE = /\b(due|deadline|submit\w*|submission|last date|closes?|closing|before|till|until|by|latest)\b/i;
   const QUIZ_RE = /\b(quiz\w*|exams?|examination|tests?|mid-?sems?|end-?sems?|mid-?terms?|viva|finals?)\b/i;
-  const WORK_RE = /\b(assignments?|homeworks?|home work|hw\s*\d|lab\s*(report|submission|\d)|project|report|tutorial sheet|problem set|pset)\b/i;
-  const EVENT_WORDS = /\b(workshop|session|talk|seminar|event|orientation|webinar|competition|hackathon|meet|meeting|lecture|class|defen[cs]e|interview|registration|fest|screening|tryouts?)s?\b/i;
+  const WORK_RE = /\b(assignments?|homeworks?|home work|hw\s*\d|lab\s*(report|submission|assignment)|project|report|tutorial sheet|problem set|pset)\b/i;
+  // the date belongs to something around the exam, not the exam itself (a crib session, the paper review...)
+  const NOT_ASSESS_RE = /\b(cribs?|cribbing|review|doubts?|doubt-clearing|discussion|revision|help session|solutions?|answer (?:sheets?|scripts?|key)|feedback|marks|grades?|graded|results?|re-?evaluation|seating|invigilat\w*|cancel+ed|no (?:quiz|exam|class)|practice|mock|sample paper|syllabus)\b/i;
+  const ACTIVITY_RE = /\b(labs?|class(?:es)?|lectures?|tutorials?|sessions?|meetings?|office hours?|talk|seminar)\b/i;
+  const EVENT_WORDS = /\b(workshop|session|crib|lab|talk|seminar|event|orientation|webinar|competition|hackathon|meet|meeting|lecture|class|defen[cs]e|interview|registration|fest|screening|tryouts?)s?\b/i;
   const DEADLINE_WORDS = /\b(due|deadline|last date|submit|submission|quiz|exam|test|mid-?sem|end-?sem|viva|assignment|homework|home work|lab|tutorial|presentation|interview|register|registration|apply|application|closes|before|by)\b/i;
   const TYPES = { quiz: "Quizzes & exams", deadline: "Assignment deadlines", event: "Events & talks", other: "Other dates" };
   const TYPE_COLORS = { quiz: "#b07c7c", deadline: "#7c8db5", event: "#8aa37a", other: "#a1a1aa" };
 
   // What kind of date is this? Looks at the words just before it, and the subject.
-  function typeOf(before, after, subj) {
+  function typeOf(before, after, subj, sentence = before + " " + after) {
     const near = before.slice(-60);
     if (START_RE.test(near) && !DUE_RE.test(near.slice(-25))) return "start";
+    if (NOT_ASSESS_RE.test(sentence)) return EVENT_WORDS.test(sentence) ? "event" : "other";
     if (DUE_RE.test(near) && (WORK_RE.test(before + " " + subj) || /\bdue\b|deadline|submi/i.test(near))) return QUIZ_RE.test(near.slice(-30)) && !WORK_RE.test(near) ? "quiz" : "deadline";
-    if (QUIZ_RE.test(near) || (QUIZ_RE.test(subj) && !WORK_RE.test(subj) && !EVENT_WORDS.test(near))) return "quiz";
+    if (QUIZ_RE.test(sentence)) return "quiz";
+    // the subject says "quiz" but this sentence is about a lab, class or session: not the quiz date
+    if (QUIZ_RE.test(subj) && !WORK_RE.test(subj) && !EVENT_WORDS.test(near) && !ACTIVITY_RE.test(sentence)) return "quiz";
     if (WORK_RE.test(near) || DUE_RE.test(near)) return "deadline";
     if (EVENT_WORDS.test(near + " " + after) || EVENT_WORDS.test(subj)) return "event";
     return "other";
   }
   const LABEL_RE = /\b(quiz|assignment|homework|home work|hw|lab|tutorial|mid-?sem|end-?sem|exam|project|viva|test|problem set)\s*(?:no\.?\s*)?#?\s*(\d{1,2})?\b/i;
   function labelOf(before, subj, type) {
-    const all = [...before.slice(-80).matchAll(new RegExp(LABEL_RE.source, "gi"))];
-    const m = all.length ? all[all.length - 1] : subj.match(LABEL_RE);
+    const QUIZW = /^(quiz|mid-?sem|end-?sem|exam|viva|test)$/i;
+    const fits = (x) => (type === "quiz") === QUIZW.test(x[1]);
+    const all = [...before.slice(-80).matchAll(new RegExp(LABEL_RE.source, "gi"))].filter(fits);
+    const sm = subj.match(LABEL_RE);
+    const m = all.length ? all[all.length - 1] : sm && fits(sm) ? sm : null;
     if (!m) return "";
     const word = m[1].toLowerCase().replace("home work", "homework").replace(/^hw$/, "homework");
     const nice = { "mid-sem": "Midsem", midsem: "Midsem", "end-sem": "Endsem", endsem: "Endsem", "problem set": "Problem set" }[word] || word[0].toUpperCase() + word.slice(1);
@@ -385,6 +394,8 @@
 
   function findDates(s, refTs, subj = "") {
     const out = [], ref = new Date(refTs);
+    // Moodle forum mails start with "by <name> - Tuesday, 13 October 2026, 4:08 PM": that's when it was posted
+    s = s.replace(/\bby [^\n]{2,80}? - (?:mon|tues|wednes|thurs|fri|satur|sun)day, \d{1,2} \w+ \d{4}, \d{1,2}:\d{2} ?[ap]m/gi, " ");
     for (const { re, d, m, y, num } of DATE_RES) {
       for (const hit of s.matchAll(re)) {
         const day = +hit[d], mon = num ? +hit[m] - 1 : MONTHS.indexOf(hit[m].slice(0, 3).toLowerCase());
@@ -404,16 +415,23 @@
           if (ap === "noon") { hh = 12; mm = 0; }
           if (hh > 23 || mm > 59) { hh = 23; mm = 59; hasTime = false; }
         }
+        const ts = new Date(year, mon, day, hh, mm).getTime();
+        if (hasTime && Math.abs(ts - refTs) < 3 * 3600 * 1000) continue; // a timestamp of the mail itself
         const before = s.slice(Math.max(0, hit.index - 120), hit.index), after = s.slice(end, end + 60);
-        const type = typeOf(before, after, subj);
-        out.push({ ts: new Date(year, mon, day, hh, mm).getTime(), hasTime, type, label: labelOf(before, subj, type) });
+        const sStart = Math.max(before.search(/[^.!?\n]*$/), 0), sEnd = after.search(/[.!?\n]/);
+        const sentence = before.slice(sStart) + " " + hit[0] + " " + (sEnd < 0 ? after : after.slice(0, sEnd));
+        const type = typeOf(before, after, subj, sentence);
+        const na = type !== "quiz" && type !== "deadline" && sentence.match(NOT_ASSESS_RE);
+        const label = na ? na[1][0].toUpperCase() + na[1].slice(1).toLowerCase() + (/session/i.test(sentence) && !/session/i.test(na[1]) ? " session" : "")
+          + ((sentence.match(QUIZ_RE) || [])[1] ? " (" + sentence.match(QUIZ_RE)[1].toLowerCase() + ")" : "") : labelOf(before.slice(sStart), subj, type);
+        out.push({ ts, hasTime, type, label });
       }
     }
     return out;
   }
 
-  let deadlineCache = ls.get("bs-dates-v2", {}); // "mbox:uid" -> dates found in the body
-  try { localStorage.removeItem("bs-deadlines-v1:" + USER); } catch {}
+  let deadlineCache = ls.get("bs-dates-v3", {}); // "mbox:uid" -> dates found in the body
+  try { ["bs-deadlines-v1:", "bs-dates-v2:"].forEach((k) => localStorage.removeItem(k + USER)); } catch {}
   let hiddenEvents = new Set(ls.get("bs-hidden-events", []));
   let manualEvents = ls.get("bs-manual-events", []); // [{id, ts, hasTime, type, title, course}]
   const cleanSubject = (s) => s.replace(/^\s*(?:(?:re|fwd?|fw)\s*:\s*)*/i, "").replace(/^\[[^\]]+\]\s*/, "")
@@ -493,7 +511,7 @@
       }
       const cut = now - 120 * DAY;
       for (const k of Object.keys(deadlineCache)) { const m = byKey.get(k); if (!m || m.ts < cut) delete deadlineCache[k]; }
-      ls.set("bs-dates-v2", deadlineCache);
+      ls.set("bs-dates-v3", deadlineCache);
       eventsDirty = true;
       update();
     } finally { scanning = false; }
