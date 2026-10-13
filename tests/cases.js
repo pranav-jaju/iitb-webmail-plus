@@ -75,3 +75,16 @@ module.exports.push(
   W("EE 204: Quiz 1", "Quiz 1 was held on Friday. Marks will be out next week.", [], ["16/10 quiz", "9/10 quiz"]),
   W("EE 204: Tutorial", "Tutorial tomorrow in LH 101.", [], ["13/10 quiz", "13/10 deadline"]),
 );
+// round 3: crib mails, day-only and weekday dates, "no classes", test cases
+module.exports.push(
+  { subj: "EE 214-2026-1: Quiz 1 Crib on Wednesday 30 Sept 2026", sent: T(9, 28, 18), body: "Quiz 1 Crib on Wednesday 30 Sept 2026\nby Ninad Kulkarni - Monday, 28 September 2026, 6:02 PM\nDear all,\nThe crib session for Quiz 1 will be held on Wednesday 30 Sept 2026 from 5:30 PM in LH 102. Those who cannot make it can meet the TAs on 1 Oct or Friday 2 Oct at 4:30 PM.", want: ["30/9 event"], not: ["30/9 quiz", "1/10 quiz", "2/10 quiz"] },
+  { subj: "EE 214-2026-1: Quiz 2 Announcement", sent: T(10, 12, 20), body: "Quiz 2 Announcement\nby Ninad Kulkarni - Monday, 12 October 2026, 8:00 PM\nDear all,\nQuiz 2 will be held on Friday in the lecture slot. Syllabus: all lectures after Quiz 1.", want: ["16/10 quiz"] },
+  { subj: "EE 214-2026-1: Quiz 2 Announcement", sent: T(10, 12, 20), body: "Quiz 2 will be held on Friday, the 16th, from 8:30 AM.", want: ["16/10 quiz"] },
+  { subj: "EE 214-2026-1: Quiz 2 Announcement", sent: T(10, 12, 20), body: "Dear students,\nDate: Fri 16/10\nTime: 8:30 to 9:25 AM\nVenue: LH 101", want: ["16/10 quiz"] },
+  { subj: "EE 214-2026-1: Quiz 2", sent: T(10, 12, 20), body: "The quiz is on the 16th in LH 101.", want: ["16/10 quiz"] },
+  { subj: "EE 229-2026-1-ALL: NO classes on Thursday", sent: T(10, 9), body: "There will be no classes on 12 Oct and Thursday 15 Oct because of the quiz week.", want: [], not: ["12/10 quiz", "15/10 quiz"] },
+  { subj: "EE 204-2026-1-S2: Update", sent: T(10, 5), body: "Quiz 2 syllabus will be covered in the lectures on 7 Oct and 9 Oct.", want: [], not: ["7/10 quiz", "9/10 quiz"] },
+  { subj: "EE 204-2026-1-S2: Lab 5", sent: T(10, 5), body: "Upload your test cases by 9 Oct.", want: ["9/10 deadline"], not: ["9/10 quiz"] },
+  { subj: "EE 325-2026-1: Midsem Discussion", sent: T(10, 5), body: "We will discuss the midsem paper on 8 Oct in class.", want: [], not: ["8/10 quiz"] },
+  { subj: "EE 214-2026-1: Quiz 2", sent: T(10, 5), body: "Quiz 1 cribs are over, and Quiz 2 will be held on 16 Oct.", want: ["16/10 quiz"] },
+);

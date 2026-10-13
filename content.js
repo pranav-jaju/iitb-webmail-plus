@@ -363,7 +363,9 @@
     { re: /\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/g, d: 3, m: 2, y: 1, num: true },
     { re: /\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b/g, d: 1, m: 2, y: 3, num: true },
     // "Quiz-2 on Friday (23/10)": day/month without a year, only after words like "on", "by", "(" or a weekday
-    { re: /(?:\bon|\bby|\(|day,?|date:?|till|until|before|due)\s*(\d{1,2})[/.](\d{1,2})(?![/.]?\d)/gi, d: 1, m: 2, y: 3, num: true },
+    { re: /(?:\bon|\bby|\(|day,?|\b(?:mon|tue|wed|thu|fri|sat|sun)\.?,?|date:?|till|until|before|due)\s*(\d{1,2})[/.](\d{1,2})(?![/.]?\d)/gi, d: 1, m: 2, y: 3, num: true },
+    // "on Friday, the 16th", "by the 20th": a day with no month; the month comes from the mail date (and the weekday, if given)
+    { re: new RegExp("(?:\\b(?:on|by|till|until|before|due|from)|\\b((?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?)\\.?,?|\\()\\s*(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)\\b(?!\\s*(?:of\\s+)?" + MON.replace("(", "(?:") + ")(?![/.-]\\d)", "gi"), d: 2, wd: 1, dayOnly: true },
   ];
   const REL_RE = new RegExp("\\b(?:(?<word>day after tomorrow|tomorrow|today|tonight|this evening)|(?:(?<which>this|coming|next|upcoming)\\s+)?(?<wd>mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?(?:'s|’s)?(?![a-z])(?!,?\\s*(?:the\\s+)?\\(?\\d{1,2}(?:st|nd|rd|th)?\\b|,?\\s*" + MON.replace("(", "(?:") + ")|in\\s+(?<n>\\d+|a|one|two|three|four|five)\\s+(?<unit>days?|weeks?)|within\\s+(?<wn>\\d+)\\s+(?<wunit>hours?|days?)|end of (?:this|the) week)", "gi");
   const NUMW = { a: 1, one: 1, two: 2, three: 3, four: 4, five: 5 };
@@ -383,31 +385,42 @@
   }
   const START_RE = /\b(from|starts?|starting|begins?|beginning|opens?|opening|released?|commenc\w*|available|posted|uploaded|published|sent|held on \w+ and)\b[^.]{0,30}$/i;
   const DUE_RE = /\b(due|deadline|submit\w*|submission|last date|closes?|closing|before|till|until|by|latest|no later than|on or before|eod|extended)\b/i;
-  const QUIZ_RE = /\b(quiz\w*|exams?|examination|tests?|class tests?|ct\s?-?\d|mid[- ]?sems?|end[- ]?sems?|mid[- ]?terms?|viva|vivas|finals?|lab exams?|practical exams?)\b/i;
+  const QUIZ_RE = /\b(quiz\w*|exams?|examination|(?<!unit |test |a\/b )tests?(?![- ]?(?:cases?|bench\w*|sets?|data|inputs?|run|suite|files?)\b)|class tests?|ct\s?-?\d|mid[- ]?sems?|end[- ]?sems?|mid[- ]?terms?|viva|vivas|finals|lab exams?|practical exams?)\b/i;
   const WORK_RE = /\b(assignments?|homeworks?|home work|hw\s*-?\d|lab\s*(?:report|submission|assignment|write-?up|journal)s?|projects?|reports?|tutorial sheets?|problem (?:sets?|sheets?)|psets?|programming assignments?|pa\s?-?\d|mini-?projects?|presentations?|term papers?|essays?|deliverables?|checkpoints?|milestones?|write-?ups?|code submissions?)\b/i;
   // the date belongs to something around the exam, not the exam itself (a crib session, the paper review...)
-  const NOT_ASSESS_RE = /\b(cribs?|cribbing|review|doubts?|doubt-clearing|discussion|revision|help session|solutions?|answer (?:sheets?|scripts?|key)|feedback|(?<!\d\s?)marks|grades?|graded|results?|re-?evaluation|seating|invigilat\w*|cancel+ed|no (?:quiz|exam|class)|practice|mock|sample paper)\b/i;
+  const NOT_ASSESS_RE = /\b(cribs?|cribbing|review|doubts?|doubt-clearing|discussion|revision|help session|solutions?|answer (?:sheets?|scripts?|key)|feedback|(?<!\d\s?)marks|grades?|graded|results?|re-?evaluation|seating|invigilat\w*|cancel+ed|no (?:quiz\w*|exams?|class(?:es)?|lectures?|labs?|tutorials?)|discuss\w*|practice|mock|sample paper)\b/i;
   const ACTIVITY_RE = /\b(labs?|class(?:es)?|lectures?|tutorials?|sessions?|meetings?|office hours?|talk|seminar)\b/i;
   const EVENT_WORDS = /\b(workshop|session|crib|lab|talk|seminar|event|orientation|webinar|competition|hackathon|meet|meeting|lecture|class|defen[cs]e|interview|registration|fest|screening|tryouts?)s?\b/i;
   const DEADLINE_WORDS = /\b(due|deadline|last date|submit|submission|quiz|exam|test|mid-?sem|end-?sem|viva|assignment|homework|home work|lab|tutorial|presentation|interview|register|registration|apply|application|closes|before|by)\b/i;
   const TYPES = { quiz: "Quizzes & exams", deadline: "Assignment deadlines", event: "Events & talks", other: "Other dates" };
   const TYPE_COLORS = { quiz: "#b07c7c", deadline: "#7c8db5", event: "#8aa37a", other: "#a1a1aa" };
 
-  // What kind of date is this? Looks at the words just before it, and the subject.
+  // "in the lecture slot", "during class hours": where a quiz happens, not a lecture date
+  const VENUE_RE = /\b(?:in|during|at)\s+(?:the\s+|your\s+|our\s+)?(?:regular\s+|usual\s+)?(?:lecture|class|tutorial|lab)\s*(?:slots?|hours?|time(?:ings)?)?\b|\b(?:lecture|class|tutorial)\s+slots?\b/gi;
+  // a mail about cribs, results, solutions or "no classes" never announces a quiz by its subject alone
+  const subjectNotAssess = (subj) => NOT_ASSESS_RE.test(subj) || /\b(update[sd]?|reminder about (?:marks|grades))\b.*\b(class|lecture)/i.test(subj);
+
+  // What kind of date is this? The clause that leads up to it decides; the subject only helps when the clause says nothing.
   const lastAt = (re, str) => { let i = -1; for (const m of str.matchAll(new RegExp(re.source, "gi"))) i = m.index; return i; };
   function typeOf(before, after, subj, clause = before, rest = after) {
-    const near = before.slice(-60), sentence = clause + " " + rest;
+    const near = before.slice(-60);
     if (START_RE.test(near) && !DUE_RE.test(near.slice(-25))) return "start";
-    // what is this date about? The clause leading up to it decides: "a crib session for the midsem on 14/10"
-    // or "quiz 2 solutions will be discussed on 20 Oct" are about the crib/solutions, not the quiz itself
-    const ni = lastAt(NOT_ASSESS_RE, clause), qi = lastAt(QUIZ_RE, clause);
-    if (ni >= 0 && !(qi > ni && /\b(held|conducted|scheduled)\b/i.test(clause.slice(qi)))) return EVENT_WORDS.test(sentence) ? "event" : "other";
-    if (/^[^.]{0,30}\b(cancel+ed|postponed|preponed|rescheduled|shifted|moved|called off|will not be held)\b/i.test(rest)) return "other"; // "quiz on 29 Sept is cancelled"
-    if (qi < 0 && ni < 0 && NOT_ASSESS_RE.test(rest.slice(0, 50)) && !QUIZ_RE.test(rest.slice(0, 50))) return "event";
-    if (DUE_RE.test(near) && (WORK_RE.test(before + " " + subj) || /\bdue\b|deadline|submi/i.test(near))) return QUIZ_RE.test(near.slice(-30)) && !WORK_RE.test(near) ? "quiz" : "deadline";
-    if (QUIZ_RE.test(sentence)) return "quiz";
-    // the subject says "quiz" but this sentence is about a lab, class or session: not the quiz date
-    if (QUIZ_RE.test(subj) && !WORK_RE.test(subj) && !EVENT_WORDS.test(sentence) && !ACTIVITY_RE.test(sentence)) return "quiz";
+    const c = clause.replace(VENUE_RE, " "), r = rest.replace(VENUE_RE, " "), sentence = c + " " + r;
+    if (/^[^.]{0,30}\b(cancel+ed|postponed|preponed|rescheduled|shifted|moved|called off|will not be held)\b/i.test(r)) return "other"; // "quiz on 29 Sept is cancelled"
+    const ni = lastAt(NOT_ASSESS_RE, c), qi = lastAt(QUIZ_RE, c), ai = lastAt(ACTIVITY_RE, c);
+    // "crib session for Quiz 1 will be held on 30 Sep" is the crib. Only "cribs are over, and Quiz 2 will be held on 23 Oct"
+    // (a separate part of the sentence, after the crib word) is the quiz again
+    const quizAgain = ni >= 0 && qi > ni && /[,;:]|\b(?:and|then|also|but|while|whereas|however)\b/i.test(c.slice(ni, qi))
+      && !NOT_ASSESS_RE.test(c.slice(qi)) && /\b(held|conducted|scheduled|will be|is on|on)\b/i.test(c.slice(qi));
+    if (ni >= 0 && !quizAgain) return EVENT_WORDS.test(sentence) ? "event" : "other";
+    if (qi < 0 && NOT_ASSESS_RE.test(r.slice(0, 40))) return EVENT_WORDS.test(sentence) ? "event" : "other"; // "30 Sep: Quiz 1 crib"
+    if (DUE_RE.test(near) && (WORK_RE.test(c + " " + subj) || /\bdue\b|deadline|submi/i.test(near))) return QUIZ_RE.test(near.slice(-30)) && !WORK_RE.test(near) ? "quiz" : "deadline";
+    // a quiz word in the clause, with no lecture/lab/class talk between it and the date
+    if (qi >= 0 && !(ai > qi)) return "quiz";
+    // "23 Oct: Quiz 2", "23 Oct (Quiz 2)"
+    if (qi < 0 && ai < 0 && QUIZ_RE.test(r.slice(0, 25))) return "quiz";
+    // the subject is a quiz announcement and this sentence only gives the when: "EE 214 Quiz 2" / "It will be held on Friday"
+    if (qi < 0 && ai < 0 && !subjectNotAssess(subj) && QUIZ_RE.test(subj) && !WORK_RE.test(subj) && !EVENT_WORDS.test(sentence) && !ACTIVITY_RE.test(sentence)) return "quiz";
     if (WORK_RE.test(near) || DUE_RE.test(near)) return "deadline";
     if (EVENT_WORDS.test(near + " " + after) || EVENT_WORDS.test(subj)) return "event";
     return "other";
@@ -429,10 +442,22 @@
   function dateHits(s, refTs) {
     const ref = new Date(refTs), hits = [], taken = [];
     const free = (i, j) => !taken.some(([a, b]) => i < b && j > a);
-    for (const { re, d, m, y, y2, num } of DATE_RES) {
+    for (const { re, d, m, y, y2, num, wd, dayOnly } of DATE_RES) {
       for (const hit of s.matchAll(re)) {
         const i = hit.index, j = i + hit[0].length;
         if (!free(i, j)) continue;
+        if (dayOnly) {
+          // "the 16th": this month or the next, whichever is not in the past (and falls on the weekday, if one was given)
+          const day = +hit[d], w = hit[wd] ? WEEKDAYS.indexOf(hit[wd].slice(0, 3).toLowerCase()) : -1;
+          if (day < 1 || day > 31) continue;
+          const opts = [0, 1, 2].map((k) => new Date(ref.getFullYear(), ref.getMonth() + k, day))
+            .filter((x) => x.getDate() === day && x >= new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - 1));
+          const pick = opts.find((x) => w < 0 || x.getDay() === w);
+          if (!pick || (w < 0 && pick.getTime() - refTs > 35 * DAY)) continue;
+          hits.push({ index: i, len: j - i, text: hit[0], y: pick.getFullYear(), mo: pick.getMonth(), d: day });
+          taken.push([i, j]);
+          continue;
+        }
         const mon = num ? +hit[m] - 1 : MONTHS.indexOf(hit[m].slice(0, 3).toLowerCase());
         let year = hit[y] ? +hit[y] : y2 && hit[y2] ? +hit[y2] : 0;
         if (year && year < 100) year += 2000;
@@ -480,7 +505,7 @@
     for (const hit of dateHits(s, refTs)) {
       const end = hit.index + hit.len;
       const before = s.slice(Math.max(0, hit.index - 120), hit.index), after = s.slice(end, end + 60);
-      const sStart = Math.max(before.search(/[^.!?\n]*$/), 0), sEnd = after.search(/[.!?\n]/);
+      const sStart = Math.max(before.search(/[^.!?;\n]*$/), 0), sEnd = after.search(/[.!?;\n]/);
       const clause = before.slice(sStart), rest = /\.\s*$/.test(hit.text) && /^\s*[A-Z]/.test(after) ? "" : sEnd < 0 ? after : after.slice(0, sEnd);
       const sentence = clause + " " + hit.text + " " + rest;
       // time: right after the date ("23 Oct, 5 PM", "by 2359 hrs", "midnight"), else just before it ("at 5 PM on 23 Oct")
@@ -495,23 +520,26 @@
       const na = type !== "quiz" && type !== "deadline" && sentence.match(NOT_ASSESS_RE);
       const label = na ? na[1][0].toUpperCase() + na[1].slice(1).toLowerCase() + (/session/i.test(sentence) && !/session/i.test(na[1]) ? " session" : "")
         + ((sentence.match(QUIZ_RE) || [])[1] ? " (" + sentence.match(QUIZ_RE)[1].toLowerCase() + ")" : "") : labelOf(clause, subj, type);
-      out.push({ ts, hasTime, type, label });
+      out.push({ ts, hasTime, type, label, src: (clause + hit.text + rest).replace(/\s+/g, " ").trim().slice(0, 200) });
     }
     return out;
   }
 
   // a course mail that talks about a quiz or a deadline but gave no date we could read: worth a look
-  const SCHEDULE_RE = /\b(will be|is|are|on|scheduled|conducted|held|due|deadline|submit\w*|announce\w*|date|tomorrow|next|this)\b/i;
+  const SCHEDULE_RE = /\b(will be (?:held|conducted|on|in|during|scheduled|taken)|shall be|is scheduled|scheduled (?:for|on)|to be (?:held|conducted|submitted)|will take place|is on|due|deadline|last date|upcoming|tomorrow|next week|this week)\b/i;
+  // Moodle receipts and grading notices talk about assignments but never announce a date
+  const NO_CHECK_SUBJ = /submission (?:confirmation|receipt)|submitted|has been graded|grad(?:e|es|ing)\b|feedback|attendance|posted a new|forum digest/i;
   function mentionWithoutDate(body, subj, refTs) {
+    if (subjectNotAssess(subj) || NO_CHECK_SUBJ.test(subj)) return "";
     const sentences = (subj + "\n" + body).split(/(?<=[.!?])\s+|\n+/);
-    return sentences.find((t) => t.length > 8 && t.length < 300 && !NOT_ASSESS_RE.test(t) && SCHEDULE_RE.test(t)
+    return sentences.find((t) => t.length > 8 && t.length < 300 && !NOT_ASSESS_RE.test(t) && SCHEDULE_RE.test(t) && !/\b(was|were|had been)\b/i.test(t)
       && (QUIZ_RE.test(t) || (WORK_RE.test(t) && DUE_RE.test(t))) && !dateHits(t, refTs).length) || "";
   }
 
   // bump DATES_VERSION whenever the date rules change, so every mail is read again with the new rules
-  const DATES_VERSION = "bs-dates-v6";
+  const DATES_VERSION = "bs-dates-v7";
   let deadlineCache = ls.get(DATES_VERSION, {}); // "mbox:uid" -> dates found in the body
-  try { ["bs-deadlines-v1:", "bs-dates-v2:", "bs-dates-v3:", "bs-dates-v4:", "bs-dates-v5:"].forEach((k) => localStorage.removeItem(k + USER)); } catch {}
+  try { ["bs-deadlines-v1:", "bs-dates-v2:", "bs-dates-v3:", "bs-dates-v4:", "bs-dates-v5:", "bs-dates-v6:"].forEach((k) => localStorage.removeItem(k + USER)); } catch {}
   let hiddenEvents = new Set(ls.get("bs-hidden-events", []));
   let manualEvents = ls.get("bs-manual-events", []); // [{id, ts, hasTime, type, title, course}]
   const cleanSubject = (s) => s.replace(/^\s*(?:(?:re|fwd?|fw)\s*:\s*)*/i, "").replace(/^\[[^\]]+\]\s*/, "")
@@ -548,8 +576,19 @@
       for (const d of perDay.values()) {
         const title = d.label || cleanSubject(m.subj) || m.subj;
         out.push({ id: key + ":" + new Date(d.ts).toDateString(), ts: d.ts, hasTime: d.hasTime, type: d.type, title,
-          detail: cleanSubject(m.subj), course: m.course, m });
+          detail: cleanSubject(m.subj), src: d.src, label: d.label, course: m.course, m });
       }
+    }
+    // one date per numbered quiz or assignment of a course: "EE 214 Quiz 2" announced, reminded and moved
+    // across several mails ends up on the date the newest mail gives (a crib or results mail no longer counts)
+    const newest = new Map();
+    for (const e of out) if (e.course && (e.type === "quiz" || e.type === "deadline") && /\d|sem|term/i.test(e.label || "")) {
+      const k = e.course + "|" + e.label.toLowerCase(), prev = newest.get(k);
+      if (!prev || e.m.ts > prev) newest.set(k, e.m.ts);
+    }
+    for (let i = out.length - 1; i >= 0; i--) {
+      const e = out[i], t = e.course && e.label && newest.get(e.course + "|" + e.label.toLowerCase());
+      if (t && (e.type === "quiz" || e.type === "deadline") && e.m.ts < t) out.splice(i, 1);
     }
     for (const e of manualEvents) out.push({ ...e, manual: true, detail: e.title });
     // the same thing announced in several mails: keep the newest announcement
@@ -788,6 +827,7 @@
   #bs-cal .more{font-size:11px;color:var(--bs-mut);padding-left:4px}
   #bs-cal .side{width:280px;flex:none;overflow:auto}
   #bs-cal .side h3{margin:2px 10px 6px;font:600 11px var(--bs-font);color:var(--bs-mut);text-transform:uppercase;letter-spacing:.05em}
+  #bs-pop .m.q{font-style:italic;border-left:2px solid var(--bs-line);padding-left:8px;margin:6px 0}
   #bs-cal .bs-chk{padding:9px 10px;margin:4px 0;border:1px dashed var(--bs-line);border-radius:8px;font-size:13px}
   #bs-cal .bs-chk .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#bs-cal .bs-chk .t b{font-weight:500}
   #bs-cal .bs-chk .s{color:var(--bs-mut);font-size:12px;margin-top:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -1024,7 +1064,7 @@
     pop.id = "bs-pop"; pop.className = "bs-card";
     pop.innerHTML = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">${courseChip(e.course)}<span class="bs-chip" style="margin:0">${esc(TYPES[e.type] || "Date")}</span></div>
       <h5>${esc(e.title)}</h5><div class="m">${esc(showWhen(e.ts, e.hasTime))}</div>
-      ${e.detail && e.detail !== e.title ? `<div class="m">${esc(e.detail)}</div>` : ""}${e.m ? `<div class="m">From ${esc(e.m.from)}</div>` : ""}
+      ${e.detail && e.detail !== e.title ? `<div class="m">${esc(e.detail)}</div>` : ""}${e.src ? `<div class="m q">“${esc(e.src)}”</div>` : ""}${e.m ? `<div class="m">From ${esc(e.m.from)}</div>` : ""}
       <div class="a">${e.m ? '<button class="bs-btn" data-open>Open mail</button>' : ""}<button class="bs-btn ghost" data-ics>Add to calendar</button>
       <button class="bs-btn ghost" data-hide>${e.manual ? "Delete" : "Hide"}</button></div>`;
     document.body.appendChild(pop);
