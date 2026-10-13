@@ -1,0 +1,69 @@
+/* IITB Webmail+ minimal look for Roundcube Elastic: neutral greys, one accent, no gradients.
+   Only active while <html> has class bs-theme ("Webmail+ look" in the sidebar switches it off). */
+html.bs-theme {
+  --bs-font: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  --bsp-bg: #ffffff; --bsp-soft: #f7f7f8; --bsp-fg: #18181b; --bsp-mut: #71717a; --bsp-line: #ececef;
+  --bsp-hov: #f4f4f5; --bsp-acc: #4f46e5; --bsp-sel: #eef0fd;
+}
+html.bs-theme.dark-mode {
+  --bsp-bg: #18181b; --bsp-soft: #141416; --bsp-fg: #e4e4e7; --bsp-mut: #a1a1aa; --bsp-line: #27272a;
+  --bsp-hov: #232326; --bsp-acc: #a5b4fc; --bsp-sel: #25263a;
+}
+html.bs-theme body { font-family: var(--bs-font) !important; -webkit-font-smoothing: antialiased; background: var(--bsp-bg) !important; color: var(--bsp-fg); }
+
+/* left app menu: quiet rail; every item is a fully rounded pill inside the rail (nothing clipped) */
+html.bs-theme #layout-menu { background: var(--bsp-soft) !important; border-right: 1px solid var(--bsp-line) !important; overflow: hidden; }
+html.bs-theme #layout-menu .menu, html.bs-theme #layout-menu .special-buttons { padding: 0 !important; }
+html.bs-theme #layout-menu .menu a, html.bs-theme #layout-menu .special-buttons a {
+  box-sizing: border-box !important; width: calc(100% - 16px) !important; margin: 2px 8px !important; border-radius: 10px !important;
+  background: transparent !important; border: 0 !important; color: var(--bsp-mut) !important; transition: background .12s, color .12s; }
+html.bs-theme #layout-menu .menu a:hover, html.bs-theme #layout-menu .special-buttons a:hover { color: var(--bsp-fg) !important; background: var(--bsp-hov) !important; }
+html.bs-theme #layout-menu .menu a.selected { color: var(--bsp-acc) !important; background: var(--bsp-sel) !important; }
+html.bs-theme #layout-menu .menu a.compose { background: var(--bsp-acc) !important; color: #fff !important; margin: 6px 8px 10px !important; }
+html.bs-theme #layout-menu .menu a.compose:hover { filter: brightness(1.08); }
+html.bs-theme.dark-mode #layout-menu .menu a.compose { color: #18181b !important; }
+html.bs-theme #layout-menu .special-buttons { border-top: 1px solid var(--bsp-line); padding-top: 6px !important; }
+
+/* panes */
+html.bs-theme #layout-sidebar { background: var(--bsp-soft) !important; border-right: 1px solid var(--bsp-line) !important; }
+html.bs-theme #layout-list, html.bs-theme #layout-content { background: var(--bsp-bg) !important; }
+html.bs-theme #layout-list { border-right: 1px solid var(--bsp-line) !important; }
+html.bs-theme #layout-sidebar > .header, html.bs-theme #layout-list > .header, html.bs-theme #layout-content > .header {
+  background: transparent !important; border-bottom: 1px solid var(--bsp-line) !important; }
+html.bs-theme .header .header-title { font-weight: 600; }
+
+/* folder list */
+html.bs-theme #mailboxlist li { border: 0 !important; }
+html.bs-theme #mailboxlist li > a { border-radius: 8px; margin: 1px 8px; color: var(--bsp-fg) !important; }
+html.bs-theme #mailboxlist li > a:hover { background: var(--bsp-hov) !important; }
+html.bs-theme #mailboxlist li.selected > a { background: var(--bsp-hov) !important; color: var(--bsp-fg) !important; font-weight: 600; }
+html.bs-theme #mailboxlist li.selected > a::before { color: var(--bsp-acc) !important; }
+html.bs-theme #mailboxlist .unreadcount { background: transparent !important; color: var(--bsp-mut) !important; font-weight: 600; }
+
+/* search box */
+html.bs-theme .searchbar input, html.bs-theme #mailsearchform {
+  border-radius: 8px !important; background: var(--bsp-soft) !important; border: 1px solid var(--bsp-line) !important; color: var(--bsp-fg) !important; }
+html.bs-theme .searchbar input:focus, html.bs-theme #mailsearchform:focus { border-color: var(--bsp-acc) !important; box-shadow: none !important; }
+
+/* message list: flat rows, hairline separators */
+html.bs-theme #messagelist tbody tr td { background: transparent; border-bottom: 1px solid var(--bsp-line) !important; border-top: 0 !important; }
+html.bs-theme #messagelist tbody tr:hover td { background: var(--bsp-hov) !important; }
+html.bs-theme #messagelist tbody tr.selected td, html.bs-theme #messagelist tbody tr.focused.selected td { background: var(--bsp-sel) !important; color: var(--bsp-fg) !important; }
+html.bs-theme #messagelist tbody tr.unread span.subject a, html.bs-theme #messagelist tbody tr.unread .fromto { font-weight: 650; color: var(--bsp-fg); }
+html.bs-theme #messagelist span.date, html.bs-theme #messagelist span.size { color: var(--bsp-mut); }
+
+/* toolbars and buttons */
+html.bs-theme .toolbar a.button { border-radius: 8px; }
+html.bs-theme .toolbar a.button:hover { background: var(--bsp-hov) !important; }
+html.bs-theme .btn-primary, html.bs-theme .button.mainaction { background: var(--bsp-acc) !important; border-color: var(--bsp-acc) !important; border-radius: 8px !important; }
+html.bs-theme .pagenav, html.bs-theme .footer { background: transparent !important; border-color: var(--bsp-line) !important; }
+
+/* reading pane header (inside the preview frame) */
+html.bs-theme #message-header { border-bottom: 1px solid var(--bsp-line); }
+html.bs-theme #message-header h2.subject { font-weight: 600; }
+
+/* popups */
+html.bs-theme .popover, html.bs-theme .ui-dialog { border-radius: 10px !important; border-color: var(--bsp-line) !important; box-shadow: 0 8px 24px rgba(0,0,0,.12) !important; }
+
+html.bs-theme ::-webkit-scrollbar { width: 10px; height: 10px; }
+html.bs-theme ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--bsp-mut) 30%, transparent); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
