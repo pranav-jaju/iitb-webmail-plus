@@ -157,11 +157,13 @@
   const colorOf = (key) => { let h = 0; for (const ch of String(key)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return COURSE_COLORS[h % COURSE_COLORS.length]; };
 
   // ---------- local index ----------
-  // rows: uid -> [subject, senderName, timestamp, seen, hasAttachment, senderEmail]
+  // rows: uid -> [subject, senderName, timestamp, seen, hasAttachment, senderEmail, flagged]
   const IDX_KEY = "bs-index-v4";
   try { ["bs-index-v1:", "bs-index-v2:", "bs-index-v3:"].forEach((k) => localStorage.removeItem(k + USER)); } catch {} // older versions
   let index = ls.get(IDX_KEY, null) || { folders: {} };
   const saveIndex = () => ls.set(IDX_KEY, index);
+  // older indexes have no flagged state: re-read every folder once in the background (rows stay usable meanwhile)
+  if (!index.flags) { for (const f of Object.values(index.folders)) f.full = 0; index.flags = 1; }
   const EXCLUDED = () => new Set([rcmail.env.trash_mailbox, rcmail.env.junk_mailbox, rcmail.env.sent_mailbox,
     rcmail.env.drafts_mailbox, "Sent", "Drafts", "Trash", "Junk"].filter(Boolean));
   const folders = () => { const skip = EXCLUDED(); return Object.keys(rcmail.env.mailboxes || { INBOX: 1 }).filter((f) => !skip.has(f)); };
@@ -170,7 +172,7 @@
     const fromHtml = r.cols.fromto || r.cols.from || "";
     const email = (fromHtml.match(/title="([^"@\s]+@[^"\s]+)"/) || fromHtml.match(/([\w.+-]+@[\w.-]+)/) || [])[1] || "";
     const att = /multipart\/(mixed|report|signed)/i.test(r.flags.ctype || "") || /attachment/i.test(r.cols.attachment || "") ? 1 : 0;
-    return [text(r.cols.subject), text(fromHtml), toTs(text(r.cols.date || "")), r.flags.seen ? 1 : 0, att, email.toLowerCase()];
+    return [text(r.cols.subject), text(fromHtml), toTs(text(r.cols.date || "")), r.flags.seen ? 1 : 0, att, email.toLowerCase(), r.flags.flagged ? 1 : 0];
   }
   function store(f, rows) { for (const r of rows) f.rows[r.uid.split("-")[0]] = rowFrom(r); }
 
@@ -178,9 +180,9 @@
   let flat = [];
   let byKey = new Map();
   let detectedCourses = new Map(); // course -> {n, u, last} before your own course list is applied
-  function makeMail(mbox, uid, [subj, from, ts, seen, att, email], mine) {
+  function makeMail(mbox, uid, [subj, from, ts, seen, att, email, flagged], mine) {
     let course = courseOf(subj, from);
-    const m = { mbox, uid, subj, from, ts, seen, att, email: email || "", detected: course, tag: listTag(subj) };
+    const m = { mbox, uid, subj, from, ts, seen, att, flagged: flagged ? 1 : 0, email: email || "", detected: course, tag: listTag(subj) };
     m.course = mine && course && !mine.has(course) ? "" : course;
     m.cat = categoryOf(m);
     m.comp = isCompetition(m);
@@ -629,7 +631,7 @@
   }
   // ---------- query: words + filters ----------
   function parseQuery(q) {
-    const f = { terms: [], from: [], subject: [], course: [], folder: "", unread: false, att: false, after: 0, before: 0 };
+    const f = { terms: [], from: [], subject: [], course: [], folder: "", unread: false, flagged: false, att: false, after: 0, before: 0 };
     for (const tok of q.match(/\S+:"[^"]*"|"[^"]*"|\S+/g) || []) {
       const m = tok.match(/^(\w+):(.+)$/);
       const v = m ? m[2].replace(/^"|"$/g, "") : tok.replace(/^"|"$/g, "");
@@ -639,6 +641,7 @@
       else if (k === "course") f.course.push(norm(v));
       else if (k === "in" || k === "folder") f.folder = v.toLowerCase();
       else if (k === "is" && /^unread|new$/i.test(v)) f.unread = true;
+      else if (k === "is" && /^(flagged|starred|star)$/i.test(v)) f.flagged = true;
       else if (k === "has" && /^att/i.test(v)) f.att = true;
       else if ((k === "after" || k === "since") && !isNaN(Date.parse(v))) f.after = Date.parse(v);
       else if (k === "before" && !isNaN(Date.parse(v))) f.before = Date.parse(v);
@@ -651,6 +654,7 @@
   }
   function matches(m, f) {
     if (f.unread && m.seen) return false;
+    if (f.flagged && !m.flagged) return false;
     if (f.att && !m.att) return false;
     if (f.after && m.ts < f.after) return false;
     if (f.before && m.ts >= f.before) return false;
@@ -858,7 +862,8 @@
     const f = parseQuery(view.q || "");
     if (view.unread) f.unread = true;
     if (view.att) f.att = true;
-    const hideMuted = settings.hideMuted && view.cat !== "notice" && !view.q && !view.comp;
+    if (view.flagged) f.flagged = true;
+    const hideMuted = settings.hideMuted && view.cat !== "notice" && !view.q && !view.comp && !view.flagged;
     let rows = flat.filter((m) => (view.cat === "all" || m.cat === view.cat) && (!view.course || m.course === view.course) && (!view.comp || m.comp)
       && !(hideMuted && mutedTags.has(m.tag)) && matches(m, f));
     if (view.q && bodies.q === view.q && bodies.rows) {
@@ -906,7 +911,7 @@
     if (view.q) foot.push('<a data-native title="the webmail\'s own search">Use webmail search</a>');
       panel.innerHTML = `<div class="bs-h"><div class="bs-h1">${view.course ? `<span class="bs-cdot" style="width:9px;height:9px;border-radius:50%;background:${colorOf(view.course)}"></span>` : ""}<b>${title}</b><button class="bs-x" title="Close (Esc)">×</button></div>
       <div class="bs-meta">${meta}</div>
-      <div class="bs-chips">${view.course || view.comp ? "" : chip("all", "All", view.cat === "all") + chip("course", "Courses", view.cat === "course") + chip("notice", "Notices", view.cat === "notice") + chip("people", "People", view.cat === "people")}${chip("unread", "Unread", view.unread)}${chip("att", "Files", view.att)}</div>
+      <div class="bs-chips">${view.course || view.comp || view.flagged ? "" : chip("all", "All", view.cat === "all") + chip("course", "Courses", view.cat === "course") + chip("notice", "Notices", view.cat === "notice") + chip("people", "People", view.cat === "people")}${chip("unread", "Unread", view.unread)}${chip("att", "Files", view.att)}</div>
       ${status.building ? `<div class="bs-bar"><i style="width:${pct}%"></i></div>` : ""}</div>
       <div class="bs-list">${courseEv.length ? `<div class="bs-group">Coming up</div>` + courseEv.map((e) => evCard(e, "c" + allEvents().indexOf(e))).join("") + '<div class="bs-group">All mails</div>' : ""}${list}</div>
       ${foot.length ? `<div class="bs-foot">${foot.join("")}</div>` : ""}`;
@@ -1100,6 +1105,7 @@
     trophy: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
     inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
     clip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+    flag: '<path d="M4 22V4a1 1 0 0 1 1-1h12l-2 4 2 4H5"/>',
     cal: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
   };
   let side, sideOpen = ls.get("bs-side-open", { courses: true, upcoming: true, lists: false });
@@ -1121,8 +1127,8 @@
     const count = (pred) => flat.reduce((n, m) => n + (pred(m) ? 1 : 0), 0);
     const unread = (cat) => count((m) => !m.seen && (!cat || m.cat === cat) && !(settings.hideMuted && cat !== "notice" && mutedTags.has(m.tag)));
     const isOn = (k, course) => !!view && ((k === "calendar" && view.mode === "calendar") || (k === "attachments" && view.mode === "attachments")
-      || (k === "comp" && view.comp) || (k === "unread" && view.unread && !view.q && view.cat === "all")
-      || (course ? view.course === course : view.mode === "list" && !view.q && !view.course && !view.unread && !view.comp && view.cat === k));
+      || (k === "comp" && view.comp) || (k === "flagged" && view.flagged) || (k === "unread" && view.unread && !view.q && view.cat === "all")
+      || (course ? view.course === course : view.mode === "list" && !view.q && !view.course && !view.unread && !view.comp && !view.flagged && view.cat === k));
     const item = (key, icon, bg, label, n, u, course = "") => `<div class="bs-i${isOn(key, course) ? " on" : ""}" data-v="${key}" ${course ? `data-course="${esc(course)}"` : ""}>
       ${icon ? `<svg class="ic" viewBox="0 0 24 24">${ICONS[icon]}</svg>` : bg ? `<span class="bs-cdot" style="background:${bg}"></span>` : ""}<span class="n">${esc(label)}</span>${u ? `<span class="c u">${u}</span>` : n ? `<span class="c">${n}</span>` : ""}</div>`;
     const soon = upcoming(21);
@@ -1131,6 +1137,7 @@
     const tagList = [...tags.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
     side.innerHTML = `
       <h4><span>Smart views</span><a data-help title="Shortcuts and search tips">?</a></h4>
+      ${item("flagged", "flag", null, "Flagged", count((m) => m.flagged), 0)}
       ${item("course", "book", null, "Courses", 0, unread("course"))}
       ${item("notice", "bell", null, "Notices", 0, unread("notice"))}
       ${item("people", "user", null, "People", 0, unread("people"))}
@@ -1157,6 +1164,7 @@
       else if (v === "attachments") openView({ mode: "attachments", att: true, title: "Files" });
       else if (v === "unread") openView({ unread: true, title: "All unread" });
       else if (v === "comp") openView({ comp: true, title: "Competitions" });
+      else if (v === "flagged") openView({ flagged: true, title: "Flagged" });
       else if (v === "courseX") openView({ cat: "course", course: el.dataset.course, title: el.dataset.course });
       else openView({ cat: v, title: { course: "Courses", notice: "Notices", people: "People" }[v] });
     }));
@@ -1246,10 +1254,10 @@
       help.id = "bs-help";
       help.innerHTML = `<div><h3>Webmail+ shortcuts</h3>
         <p><kbd>/</kbd> search · <kbd>Esc</kbd> close · <kbd>j</kbd><kbd>k</kbd> or <kbd>↓</kbd><kbd>↑</kbd> move through results · <kbd>Enter</kbd> open<br>
-        <kbd>g</kbd> then <kbd>u</kbd> unread · <kbd>c</kbd> courses · <kbd>n</kbd> notices · <kbd>p</kbd> people · <kbd>x</kbd> competitions · <kbd>d</kbd> calendar · <kbd>a</kbd> files<br>
+        <kbd>g</kbd> then <kbd>u</kbd> unread · <kbd>c</kbd> courses · <kbd>n</kbd> notices · <kbd>p</kbd> people · <kbd>x</kbd> competitions · <kbd>f</kbd> flagged · <kbd>d</kbd> calendar · <kbd>a</kbd> files<br>
         <kbd>?</kbd> this help</p>
         <b>Search tips</b><p>Words match subject and sender, ignoring spaces and dashes (EE229 = EE 229).<br>
-        <code>from:mulleti</code> <code>subject:quiz</code> <code>course:EE229</code> <code>is:unread</code> <code>has:attachment</code><br>
+        <code>from:mulleti</code> <code>subject:quiz</code> <code>course:EE229</code> <code>is:unread</code> <code>is:flagged</code> <code>has:attachment</code><br>
         <code>newer:7d</code> <code>older:1m</code> <code>after:2026-09-01</code> <code>before:2026-10-01</code> <code>in:inbox</code><br>
         Press <kbd>Enter</kbd> to also search inside mail bodies; <kbd>Shift</kbd>+<kbd>Enter</kbd> for the webmail's own search.</p>
         <p style="color:var(--bs-mut);font-size:12.5px">Your mail list stays in this browser. Calendar dates are read from mail text, so always check the mail itself. Edit your courses from <b>My courses → Edit</b>.</p>
@@ -1312,7 +1320,7 @@
     if (Date.now() - gPending < 1200) {
       gPending = 0;
       const go = { u: () => openView({ unread: true, title: "All unread" }), c: () => openView({ cat: "course", title: "Courses" }),
-        n: () => openView({ cat: "notice", title: "Notices" }), x: () => openView({ comp: true, title: "Competitions" }), p: () => openView({ cat: "people", title: "People" }),
+        n: () => openView({ cat: "notice", title: "Notices" }), x: () => openView({ comp: true, title: "Competitions" }), f: () => openView({ flagged: true, title: "Flagged" }), p: () => openView({ cat: "people", title: "People" }),
         d: () => openCalendar(), a: () => openView({ mode: "attachments", att: true, title: "Files" }) }[e.key];
       if (go) { e.preventDefault(); go(); }
     }
@@ -1328,6 +1336,24 @@
   if (rcmail.addEventListener) {
     rcmail.addEventListener("listupdate", () => applyMutes());
     rcmail.addEventListener("init", watchList);
+  }
+  // flagging or unflagging in the webmail updates the Flagged view straight away
+  if (typeof rcmail.set_message_status === "function") {
+    const orig = rcmail.set_message_status;
+    rcmail.set_message_status = function (id, flag, status) {
+      const out = orig.apply(this, arguments);
+      try {
+        if (flag === "flagged" || flag === "unflagged") {
+          const on = flag === "flagged" ? !!status : !status;
+          const [uid, b64] = String(id).split("-");
+          const mbox = b64 ? atobSafe(b64) : rcmail.env.mailbox || "INBOX";
+          const row = index.folders[mbox]?.rows[uid], m = byKey.get(mbox + ":" + uid);
+          if (row) { row[6] = on ? 1 : 0; saveIndex(); }
+          if (m) { m.flagged = on ? 1 : 0; update(); }
+        }
+      } catch (e) {}
+      return out;
+    };
   }
   // clicking a folder or Mail in the menu goes straight back to the normal list
   document.addEventListener("click", (e) => {

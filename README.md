@@ -17,9 +17,9 @@ in one long list. Webmail+ fixes that from inside the page you already use. No n
 
 - **Instant search as you type.** `EE229` also finds `EE 229` and `EE-229`. Searches every received
   mail, not just the current page. Press **Enter** to also look inside mail bodies.
-  Filters: `from:` `subject:` `course:` `is:unread` `has:attachment` `in:` `after:2026-09-01`
+  Filters: `from:` `subject:` `course:` `is:unread` `is:flagged` `has:attachment` `in:` `after:2026-09-01`
   `before:` `newer:7d` `older:1m`.
-- **Smart views** in the sidebar: Courses, Notices, People, Competitions, All unread, Files, Calendar.
+- **Smart views** in the sidebar: Flagged, Courses, Notices, People, Competitions, All unread, Files, Calendar.
 - **My courses.** Detected from Moodle and course mails. Click **Edit** to tick the courses you're
   taking this semester or add a missing code. Each course gets its own view with unread count.
 - **Calendar** of quizzes, exams and assignment deadlines read from your course mails. It understands
@@ -60,7 +60,7 @@ IITB Webmail+ in `chrome://extensions`, then reload webmail.
 | --- | --- |
 | `/` | Jump to search |
 | `j` `k` or `↓` `↑`, `Enter` | Move through results, open |
-| `g` then `u` / `c` / `n` / `p` / `x` | Unread, Courses, Notices, People, Competitions |
+| `g` then `f` / `u` / `c` / `n` / `p` / `x` | Flagged, Unread, Courses, Notices, People, Competitions |
 | `g` then `d` / `a` | Calendar, Files |
 | `Esc` | Close the panel |
 | `?` | Help |
