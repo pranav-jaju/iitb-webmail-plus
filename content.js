@@ -396,7 +396,7 @@
   const TYPE_COLORS = { quiz: "#b07c7c", deadline: "#7c8db5", event: "#8aa37a", other: "#a1a1aa" };
 
   // "in the lecture slot", "during class hours": where a quiz happens, not a lecture date
-  const VENUE_RE = /\b(?:in|during|at)\s+(?:the\s+|your\s+|our\s+)?(?:regular\s+|usual\s+)?(?:lecture|class|tutorial|lab)\s*(?:slots?|hours?|time(?:ings)?)?\b|\b(?:lecture|class|tutorial)\s+slots?\b/gi;
+  const VENUE_RE = /\b(?:in|during|at)\s+(?:the\s+|your\s+|our\s+|their\s+)?(?:regular\s+|usual\s+|respective\s+|allotted\s+|allocated\s+)?(?:lecture|class|tutorial|lab)\s*(?:slots?|hours?|time(?:ings)?)?\b|\b(?:lecture|class|tutorial)\s+slots?\b/gi;
   // a mail about cribs, results, solutions or "no classes" never announces a quiz by its subject alone
   const subjectNotAssess = (subj) => NOT_ASSESS_RE.test(subj) || /\b(update[sd]?|reminder about (?:marks|grades))\b.*\b(class|lecture)/i.test(subj);
 
@@ -416,7 +416,8 @@
     if (qi < 0 && NOT_ASSESS_RE.test(r.slice(0, 40))) return EVENT_WORDS.test(sentence) ? "event" : "other"; // "30 Sep: Quiz 1 crib"
     if (DUE_RE.test(near) && (WORK_RE.test(c + " " + subj) || /\bdue\b|deadline|submi/i.test(near))) return QUIZ_RE.test(near.slice(-30)) && !WORK_RE.test(near) ? "quiz" : "deadline";
     // a quiz word in the clause, with no lecture/lab/class talk between it and the date
-    if (qi >= 0 && !(ai > qi)) return "quiz";
+    // "Quiz 2 for the Digital Circuits lab will be conducted ... on" is still the quiz; "Quiz 2 syllabus will be covered in the lecture on" is not
+    if (qi >= 0 && (!(ai > qi) || /\b(conducted|held|scheduled|will take place|takes place)\b/i.test(c.slice(qi)))) return "quiz";
     // "23 Oct: Quiz 2", "23 Oct (Quiz 2)"
     if (qi < 0 && ai < 0 && QUIZ_RE.test(r.slice(0, 25))) return "quiz";
     // the subject is a quiz announcement and this sentence only gives the when: "EE 214 Quiz 2" / "It will be held on Friday"
@@ -504,7 +505,7 @@
     s = s.replace(/\bby [^\n]{2,80}? - (?:mon|tues|wednes|thurs|fri|satur|sun)day, \d{1,2} \w+ \d{4}, \d{1,2}:\d{2} ?[ap]m/gi, " ");
     for (const hit of dateHits(s, refTs)) {
       const end = hit.index + hit.len;
-      const before = s.slice(Math.max(0, hit.index - 120), hit.index), after = s.slice(end, end + 60);
+      const before = s.slice(Math.max(0, hit.index - 300), hit.index), after = s.slice(end, end + 60);
       const sStart = Math.max(before.search(/[^.!?;\n]*$/), 0), sEnd = after.search(/[.!?;\n]/);
       const clause = before.slice(sStart), rest = /\.\s*$/.test(hit.text) && /^\s*[A-Z]/.test(after) ? "" : sEnd < 0 ? after : after.slice(0, sEnd);
       const sentence = clause + " " + hit.text + " " + rest;
@@ -530,16 +531,16 @@
   // Moodle receipts and grading notices talk about assignments but never announce a date
   const NO_CHECK_SUBJ = /submission (?:confirmation|receipt)|submitted|has been graded|grad(?:e|es|ing)\b|feedback|attendance|posted a new|forum digest/i;
   function mentionWithoutDate(body, subj, refTs) {
-    if (subjectNotAssess(subj) || NO_CHECK_SUBJ.test(subj)) return "";
+    if (subjectNotAssess(subj) || NO_CHECK_SUBJ.test(subj) || dateHits(subj, refTs).length) return "";
     const sentences = (subj + "\n" + body).split(/(?<=[.!?])\s+|\n+/);
     return sentences.find((t) => t.length > 8 && t.length < 300 && !NOT_ASSESS_RE.test(t) && SCHEDULE_RE.test(t) && !/\b(was|were|had been)\b/i.test(t)
       && (QUIZ_RE.test(t) || (WORK_RE.test(t) && DUE_RE.test(t))) && !dateHits(t, refTs).length) || "";
   }
 
   // bump DATES_VERSION whenever the date rules change, so every mail is read again with the new rules
-  const DATES_VERSION = "bs-dates-v7";
+  const DATES_VERSION = "bs-dates-v8";
   let deadlineCache = ls.get(DATES_VERSION, {}); // "mbox:uid" -> dates found in the body
-  try { ["bs-deadlines-v1:", "bs-dates-v2:", "bs-dates-v3:", "bs-dates-v4:", "bs-dates-v5:", "bs-dates-v6:"].forEach((k) => localStorage.removeItem(k + USER)); } catch {}
+  try { ["bs-deadlines-v1:", "bs-dates-v2:", "bs-dates-v3:", "bs-dates-v4:", "bs-dates-v5:", "bs-dates-v6:", "bs-dates-v7:"].forEach((k) => localStorage.removeItem(k + USER)); } catch {}
   let hiddenEvents = new Set(ls.get("bs-hidden-events", []));
   let manualEvents = ls.get("bs-manual-events", []); // [{id, ts, hasTime, type, title, course}]
   const cleanSubject = (s) => s.replace(/^\s*(?:(?:re|fwd?|fw)\s*:\s*)*/i, "").replace(/^\[[^\]]+\]\s*/, "")

@@ -88,3 +88,6 @@ module.exports.push(
   { subj: "EE 325-2026-1: Midsem Discussion", sent: T(10, 5), body: "We will discuss the midsem paper on 8 Oct in class.", want: [], not: ["8/10 quiz"] },
   { subj: "EE 214-2026-1: Quiz 2", sent: T(10, 5), body: "Quiz 1 cribs are over, and Quiz 2 will be held on 16 Oct.", want: ["16/10 quiz"] },
 );
+module.exports.push(
+  { subj: "EE 214-2026-1-ALL: Quiz 2 Announcement", sent: T(10, 12, 0, 25), body: "Quiz 2 Announcement\nby Ninad Kulkarni - Monday, 12 October 2026, 12:23 AM\nDesigning Digital Circuits - Jonathan Turner.pdf\nDear Students,\nQuiz 2 for Digital Circuits lab will be conducted in the upcoming week during respective lab slots on Thursday (15 October 2026) and Friday (16 October 2026).\nAs a reference, you can go through the book : Designing Digital Circuits by Jonathan Turner which is attached below.", want: ["15/10 quiz Quiz 2", "16/10 quiz Quiz 2"] },
+);
