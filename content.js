@@ -440,8 +440,10 @@
     return out;
   }
 
-  let deadlineCache = ls.get("bs-dates-v3", {}); // "mbox:uid" -> dates found in the body
-  try { ["bs-deadlines-v1:", "bs-dates-v2:"].forEach((k) => localStorage.removeItem(k + USER)); } catch {}
+  // bump DATES_VERSION whenever the date rules change, so every mail is read again with the new rules
+  const DATES_VERSION = "bs-dates-v5";
+  let deadlineCache = ls.get(DATES_VERSION, {}); // "mbox:uid" -> dates found in the body
+  try { ["bs-deadlines-v1:", "bs-dates-v2:", "bs-dates-v3:", "bs-dates-v4:"].forEach((k) => localStorage.removeItem(k + USER)); } catch {}
   let hiddenEvents = new Set(ls.get("bs-hidden-events", []));
   let manualEvents = ls.get("bs-manual-events", []); // [{id, ts, hasTime, type, title, course}]
   const cleanSubject = (s) => s.replace(/^\s*(?:(?:re|fwd?|fw)\s*:\s*)*/i, "").replace(/^\[[^\]]+\]\s*/, "")
@@ -525,7 +527,7 @@
       }
       const cut = now - 120 * DAY;
       for (const k of Object.keys(deadlineCache)) { const m = byKey.get(k); if (!m || m.ts < cut) delete deadlineCache[k]; }
-      ls.set("bs-dates-v3", deadlineCache);
+      ls.set(DATES_VERSION, deadlineCache);
       eventsDirty = true;
       update();
     } finally { scanning = false; }
