@@ -22,9 +22,13 @@ in one long list. Webmail+ fixes that from inside the page you already use. No n
 - **Smart views** in the sidebar: Courses, Notices, People, Competitions, All unread, Files, Calendar.
 - **My courses.** Detected from Moodle and course mails. Click **Edit** to tick the courses you're
   taking this semester or add a missing code. Each course gets its own view with unread count.
-- **Calendar** of quizzes, exams and assignment deadlines read from your course mails (start dates
-  are left out). You decide what shows, can hide wrong entries, add your own, and export to
+- **Calendar** of quizzes, exams and assignment deadlines read from your course mails. It understands
+  "23rd Oct", "23/10", "Friday (23/10)", "2026-10-23", "tomorrow", "next Friday", "in 2 days",
+  "by EOD", "2359 hrs" and more, and skips start dates, crib sessions, paper reviews and cancelled
+  dates. You decide what shows, can hide wrong entries, add your own, and export to
   Google / Apple Calendar (`.ics`).
+- **Check these**: course mails that talk about a quiz or deadline but give no readable date are
+  listed next to the calendar, so nothing slips by silently.
 - **Competitions**: hackathons, challenges, contests and case comps in one place, without seminars
   and talks.
 - **Files finder**: every mail with an attachment, grouped by course, with direct downloads.
@@ -83,6 +87,11 @@ CSS on top of Roundcube's Elastic skin.
 | `manifest.json` | Chrome extension manifest (MV3) |
 | `content.js` | Search, index, sidebar, calendar, course picker |
 | `theme.css` + `early.js` | The minimal theme, applied before the page paints |
+
+## Tests
+
+`node tests/run.js` checks the date reader against sample course mails (`tests/cases.js`).
+Found a mail it gets wrong? Add it there.
 
 ## Contributing
 
