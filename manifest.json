@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "IITB Webmail+",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A sleeker IITB webmail: instant search, your courses, a deadline calendar, files finder, muted lists and shortcuts.",
   "content_scripts": [
     {

@@ -336,8 +336,9 @@
     if (p.enc === "base64") { try { bin = atob(bin.replace(/[^A-Za-z0-9+/=]/g, "")); } catch { bin = ""; } }
     else if (p.enc === "quoted-printable") bin = bin.replace(/=\r?\n/g, "").replace(/=([0-9A-F]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
     let s = decodeCharset(bin, p.charset);
-    if (p.ctype === "text/html") s = new DOMParser().parseFromString(s, "text/html").body?.textContent || "";
-    return s.replace(/\s+/g, " ").trim();
+    if (p.ctype === "text/html") s = new DOMParser().parseFromString(s.replace(/<(br|\/p|\/div|\/li|\/tr|\/h\d)\b[^>]*>/gi, "$&\n"), "text/html").body?.textContent || "";
+    // keep line breaks: they end sentences, which decides what a date belongs to
+    return s.replace(/\r/g, "").replace(/[^\S\n]+/g, " ").replace(/ *\n[\s]*/g, "\n").trim();
   }
   function bodyText(raw) {
     const parts = mimeParts(raw).filter((p) => !p.attachment && /^text\/(plain|html)$/.test(p.ctype));
@@ -352,6 +353,8 @@
     { re: new RegExp("\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?" + MON + ",?\\s*(\\d{4})?", "gi"), d: 1, m: 2, y: 3 },
     { re: new RegExp("\\b" + MON + "\\s+(\\d{1,2})(?!\\d)(?:st|nd|rd|th)?,?\\s*(\\d{4})?", "gi"), d: 2, m: 1, y: 3 },
     { re: /\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b/g, d: 1, m: 2, y: 3, num: true },
+    // "Quiz-2 on Friday (23/10)": day/month without a year, only right after "on", "by", "(" or a weekday
+    { re: /(?:\bon|\bby|\(|day,?)\s*(\d{1,2})\/(\d{1,2})(?![\/\d])/gi, d: 1, m: 2, y: 3, num: true },
   ];
   const TIME_RE = /^[^.\n]{0,25}?\b(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.|hrs|noon|midnight)?\b/i;
   const START_RE = /\b(from|starts?|starting|begins?|beginning|opens?|opening|released?|commenc\w*|available|posted|uploaded|published|sent|held on \w+ and)\b[^.]{0,30}$/i;
@@ -359,7 +362,7 @@
   const QUIZ_RE = /\b(quiz\w*|exams?|examination|tests?|mid-?sems?|end-?sems?|mid-?terms?|viva|finals?)\b/i;
   const WORK_RE = /\b(assignments?|homeworks?|home work|hw\s*\d|lab\s*(report|submission|assignment)|project|report|tutorial sheet|problem set|pset)\b/i;
   // the date belongs to something around the exam, not the exam itself (a crib session, the paper review...)
-  const NOT_ASSESS_RE = /\b(cribs?|cribbing|review|doubts?|doubt-clearing|discussion|revision|help session|solutions?|answer (?:sheets?|scripts?|key)|feedback|marks|grades?|graded|results?|re-?evaluation|seating|invigilat\w*|cancel+ed|no (?:quiz|exam|class)|practice|mock|sample paper|syllabus)\b/i;
+  const NOT_ASSESS_RE = /\b(cribs?|cribbing|review|doubts?|doubt-clearing|discussion|revision|help session|solutions?|answer (?:sheets?|scripts?|key)|feedback|(?<!\d\s?)marks|grades?|graded|results?|re-?evaluation|seating|invigilat\w*|cancel+ed|no (?:quiz|exam|class)|practice|mock|sample paper)\b/i;
   const ACTIVITY_RE = /\b(labs?|class(?:es)?|lectures?|tutorials?|sessions?|meetings?|office hours?|talk|seminar)\b/i;
   const EVENT_WORDS = /\b(workshop|session|crib|lab|talk|seminar|event|orientation|webinar|competition|hackathon|meet|meeting|lecture|class|defen[cs]e|interview|registration|fest|screening|tryouts?)s?\b/i;
   const DEADLINE_WORDS = /\b(due|deadline|last date|submit|submission|quiz|exam|test|mid-?sem|end-?sem|viva|assignment|homework|home work|lab|tutorial|presentation|interview|register|registration|apply|application|closes|before|by)\b/i;
@@ -367,14 +370,20 @@
   const TYPE_COLORS = { quiz: "#b07c7c", deadline: "#7c8db5", event: "#8aa37a", other: "#a1a1aa" };
 
   // What kind of date is this? Looks at the words just before it, and the subject.
-  function typeOf(before, after, subj, sentence = before + " " + after) {
-    const near = before.slice(-60);
+  const lastAt = (re, str) => { let i = -1; for (const m of str.matchAll(new RegExp(re.source, "gi"))) i = m.index; return i; };
+  function typeOf(before, after, subj, clause = before, rest = after) {
+    const near = before.slice(-60), sentence = clause + " " + rest;
     if (START_RE.test(near) && !DUE_RE.test(near.slice(-25))) return "start";
-    if (NOT_ASSESS_RE.test(sentence)) return EVENT_WORDS.test(sentence) ? "event" : "other";
+    // what is this date about? The clause leading up to it decides: "a crib session for the midsem on 14/10"
+    // or "quiz 2 solutions will be discussed on 20 Oct" are about the crib/solutions, not the quiz itself
+    const ni = lastAt(NOT_ASSESS_RE, clause), qi = lastAt(QUIZ_RE, clause);
+    if (ni >= 0 && !(qi > ni && /\b(held|conducted|scheduled)\b/i.test(clause.slice(qi)))) return EVENT_WORDS.test(sentence) ? "event" : "other";
+    if (/^[^.]{0,30}\b(cancel+ed|postponed|rescheduled|called off|will not be held)\b/i.test(rest)) return "other"; // "quiz on 29 Sept is cancelled"
+    if (qi < 0 && ni < 0 && NOT_ASSESS_RE.test(rest.slice(0, 50)) && !QUIZ_RE.test(rest.slice(0, 50))) return "event";
     if (DUE_RE.test(near) && (WORK_RE.test(before + " " + subj) || /\bdue\b|deadline|submi/i.test(near))) return QUIZ_RE.test(near.slice(-30)) && !WORK_RE.test(near) ? "quiz" : "deadline";
     if (QUIZ_RE.test(sentence)) return "quiz";
     // the subject says "quiz" but this sentence is about a lab, class or session: not the quiz date
-    if (QUIZ_RE.test(subj) && !WORK_RE.test(subj) && !EVENT_WORDS.test(near) && !ACTIVITY_RE.test(sentence)) return "quiz";
+    if (QUIZ_RE.test(subj) && !WORK_RE.test(subj) && !EVENT_WORDS.test(sentence) && !ACTIVITY_RE.test(sentence)) return "quiz";
     if (WORK_RE.test(near) || DUE_RE.test(near)) return "deadline";
     if (EVENT_WORDS.test(near + " " + after) || EVENT_WORDS.test(subj)) return "event";
     return "other";
@@ -420,7 +429,8 @@
         const before = s.slice(Math.max(0, hit.index - 120), hit.index), after = s.slice(end, end + 60);
         const sStart = Math.max(before.search(/[^.!?\n]*$/), 0), sEnd = after.search(/[.!?\n]/);
         const sentence = before.slice(sStart) + " " + hit[0] + " " + (sEnd < 0 ? after : after.slice(0, sEnd));
-        const type = typeOf(before, after, subj, sentence);
+        const clause = before.slice(sStart), rest = /\.\s*$/.test(hit[0]) && /^\s*[A-Z]/.test(after) ? "" : sEnd < 0 ? after : after.slice(0, sEnd);
+        const type = typeOf(before, after, subj, clause, rest);
         const na = type !== "quiz" && type !== "deadline" && sentence.match(NOT_ASSESS_RE);
         const label = na ? na[1][0].toUpperCase() + na[1].slice(1).toLowerCase() + (/session/i.test(sentence) && !/session/i.test(na[1]) ? " session" : "")
           + ((sentence.match(QUIZ_RE) || [])[1] ? " (" + sentence.match(QUIZ_RE)[1].toLowerCase() + ")" : "") : labelOf(before.slice(sStart), subj, type);
@@ -497,8 +507,12 @@
     scanning = true;
     try {
       const now = Date.now();
-      const todo = flat.filter((m) => m.ts > now - 30 * DAY && !(m.mbox + ":" + m.uid in deadlineCache)
-        && (m.cat !== "people" || DEADLINE_WORDS.test(m.subj) || EVENT_WORDS.test(m.subj)) && !mutedTags.has(m.tag)).slice(0, 120);
+      // your course mails first (they hold the quiz and deadline dates), going back 60 days; then other recent mail
+      const fresh = (m) => !(m.mbox + ":" + m.uid in deadlineCache) && !mutedTags.has(m.tag);
+      const courseMail = (m) => m.course || (/moodle/i.test(m.email + " " + m.from) && !m.detected);
+      const todo = flat.filter((m) => m.ts > now - 60 * DAY && courseMail(m) && fresh(m)).slice(0, 200)
+        .concat(flat.filter((m) => m.ts > now - 30 * DAY && !courseMail(m) && fresh(m)
+          && (m.cat !== "people" || DEADLINE_WORDS.test(m.subj) || EVENT_WORDS.test(m.subj))).slice(0, 80));
       for (let i = 0; i < todo.length; i += 3) {
         await Promise.all(todo.slice(i, i + 3).map(async (m) => {
           try {
