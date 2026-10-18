@@ -1217,8 +1217,39 @@
     const help = side.querySelector("[data-help]");
     if (help) help.onclick = showHelp;
   }
+  // Reply, Forward, Delete in the webmail toolbar only work on the mail the webmail thinks is selected.
+  // A mail in the open folder is simply selected in the list; any other one is opened in the preview pane
+  // and the webmail is told which mail that is, until you click a row in the list again.
+  let pickedUid = null;
+  function tellWebmail(m) {
+    const rc = window.rcmail;
+    if (!rc) return false;
+    const list = rc.message_list;
+    if (list && !list.__bsHooked) {
+      list.__bsHooked = true;
+      list.addEventListener?.("select", () => { if (pickedUid != null && rc.env.uid == pickedUid) rc.env.uid = null; pickedUid = null; });
+    }
+    if (list && m.mbox === rc.env.mailbox && list.rows && list.rows[m.uid]) {
+      list.select(m.uid); // the webmail opens the preview itself and enables its buttons
+      return true;
+    }
+    pickedUid = null;
+    list?.clear_selection?.();
+    rc.env.uid = m.uid;
+    rc.env.messages = rc.env.messages || {};
+    rc.env.messages[m.uid] = Object.assign(rc.env.messages[m.uid] || {}, { mbox: m.mbox });
+    pickedUid = m.uid;
+    const cmds = rc.env.message_commands || ["show", "reply", "reply-all", "reply-list", "move", "copy", "delete", "open", "mark",
+      "edit", "viewsource", "bounce", "print", "load-attachment", "download-attachment", "download", "forward", "forward-inline", "forward-attachment"];
+    rc.enable_command?.(cmds, true);
+    if (!rc.env.list_post) rc.enable_command?.("reply-list", false);
+    return false;
+  }
   function openMail(m) {
     const frame = document.querySelector("#messagecontframe");
+    if (frame && frame.offsetParent !== null) {
+      try { if (tellWebmail(m)) { m.seen = 1; const row = index.folders[m.mbox]?.rows[m.uid]; if (row) row[3] = 1; return; } } catch (e) {}
+    }
     const qs = new URLSearchParams({ _task: "mail", _uid: m.uid, _mbox: m.mbox });
     if (frame && frame.offsetParent !== null) {
       qs.set("_action", "preview"); qs.set("_framed", "1"); frame.src = "./?" + qs;
