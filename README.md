@@ -16,7 +16,7 @@ in one long list. Webmail+ fixes that from inside the page you already use. No n
 ## Features
 
 - **Instant search as you type.** `EE229` also finds `EE 229` and `EE-229`. Searches every received
-  mail, not just the current page. Press **Enter** to also look inside mail bodies.
+  and sent mail, not just the current page. Searching from the Sent folder shows only sent mail. Press **Enter** to also look inside mail bodies.
   Filters: `from:` `subject:` `course:` `is:unread` `is:flagged` `has:attachment` `in:` `after:2026-09-01`
   `before:` `newer:7d` `older:1m`.
 - **Smart views** in the sidebar: Flagged, Courses, Notices, People, Competitions, All unread, Files, Calendar.
@@ -78,7 +78,7 @@ IITB Webmail+ in `chrome://extensions`, then reload webmail.
 
 Roundcube (the software behind IITB webmail) loads the message list over a small JSON API. The
 extension calls the same API in the background, page by page, to build a local index of your
-received mail (Sent, Drafts, Trash and Junk are skipped), then searches and groups that index
+received and sent mail (Drafts, Trash and Junk are skipped; sent mail only shows up in search), then searches and groups that index
 instantly. Dates for the calendar are parsed from subjects and recent mail bodies. The look is plain
 CSS on top of Roundcube's Elastic skin.
 

@@ -128,6 +128,13 @@
   const COMP_RE = /\b(competitions?|compet[ie]|hackathons?|\w*-?a-?thons?|ideathons?|datathons?|challenges?|contests?|olympiads?|case[- ]?comps?|case study competition|championships?|tournaments?|prize pool|prizes?|bounty|grand finale|qualifier|round 1|cash prize|pitch(?:ing)? fest|startup fest)\b/i;
   const NOT_COMP_RE = /\b(ph\.?\s?d|defen[cs]e|thesis|viva|seminar|colloquium|lecture|course|assignment|quiz|exam|tutorial|webinar|placement talk|alumni talk|hostel|mess)\b/i;
   const isCompetition = (m) => !m.course && COMP_RE.test(m.subj) && !NOT_COMP_RE.test(m.subj) && !/\bmarathons?\b/i.test(m.subj);
+  // replies about internships you applied for (personal build only: INTERNSHIPS is switched off in the public one)
+  const INTERNSHIPS = false;
+  const INTERN_RE = /\b(intern(?:ship)?s?|research (?:intern\w*|positions?|opportunit\w*|projects?|assistant\w*|stay|visit)|summer (?:research|program\w*|school|student)|winter (?:research|program\w*|project)|visiting (?:student|researcher|research)|surf)\b/i;
+  function internOf(m) {
+    if (!INTERNSHIPS || m.course || m.tag || (m.cat === "notice" && /iitb\.ac\.in$/i.test(m.email) && !/^\s*re\s*:/i.test(m.subj)) || !INTERN_RE.test(m.subj)) return "";
+    return /\bsummer\b|20\d\d research/i.test(m.subj) ? "summer" : /\bwinter\b/i.test(m.subj) ? "winter" : "other";
+  }
   function categoryOf(m) {
     if (m.course) return "course";
     if (m.tag || NOTICE_FROM.test(m.from) || NOTICE_FROM.test(m.email)) return "notice";
@@ -164,8 +171,11 @@
   const saveIndex = () => ls.set(IDX_KEY, index);
   // older indexes have no flagged state: re-read every folder once in the background (rows stay usable meanwhile)
   if (!index.flags) { for (const f of Object.values(index.folders)) f.full = 0; index.flags = 1; }
-  const EXCLUDED = () => new Set([rcmail.env.trash_mailbox, rcmail.env.junk_mailbox, rcmail.env.sent_mailbox,
-    rcmail.env.drafts_mailbox, "Sent", "Drafts", "Trash", "Junk"].filter(Boolean));
+  // Trash, Junk and Drafts are left out. Sent is indexed so search finds what you sent (from the webmail, a phone app,
+  // any client saving to "Sent" or "Sent Messages"), but sent mail stays out of the smart views and the calendar.
+  const EXCLUDED = () => new Set([rcmail.env.trash_mailbox, rcmail.env.junk_mailbox,
+    rcmail.env.drafts_mailbox, "Drafts", "Trash", "Junk", "Deleted Messages", "Deleted Items"].filter(Boolean));
+  const isSentBox = (f) => !!f && (f === rcmail.env.sent_mailbox || /^(?:inbox[./])?sent(?: messages| items| mail)?$/i.test(f));
   const folders = () => { const skip = EXCLUDED(); return Object.keys(rcmail.env.mailboxes || { INBOX: 1 }).filter((f) => !skip.has(f)); };
 
   function rowFrom(r) {
@@ -182,10 +192,12 @@
   let detectedCourses = new Map(); // course -> {n, u, last} before your own course list is applied
   function makeMail(mbox, uid, [subj, from, ts, seen, att, email, flagged], mine) {
     let course = courseOf(subj, from);
-    const m = { mbox, uid, subj, from, ts, seen, att, flagged: flagged ? 1 : 0, email: email || "", detected: course, tag: listTag(subj) };
+    const sent = isSentBox(mbox);
+    if (sent) course = "";
+    const m = { mbox, uid, subj, from, ts, seen, att, flagged: flagged ? 1 : 0, email: email || "", detected: course, tag: sent ? "" : listTag(subj), sent };
     m.course = mine && course && !mine.has(course) ? "" : course;
-    m.cat = categoryOf(m);
-    m.comp = isCompetition(m);
+    m.cat = sent ? "sent" : categoryOf(m);
+    m.comp = !sent && isCompetition(m);
     m.hay = norm(subj + " " + from + " " + (email || ""));
     return m;
   }
@@ -204,6 +216,10 @@
         flat.push(m);
       }
     }
+    // once someone has answered about an internship, their later mails (a call link, a new subject) belong there too
+    const contacts = new Map();
+    for (const m of flat) { m.intern = m.sent ? "" : internOf(m); if (m.intern && m.email) contacts.set(m.email.toLowerCase(), m.intern); }
+    for (const m of flat) if (!m.intern && !m.sent && m.email && !m.tag && !m.course && contacts.has(m.email.toLowerCase())) m.intern = contacts.get(m.email.toLowerCase());
     flat.sort((a, b) => b.ts - a.ts || +b.uid - +a.uid);
     byKey = new Map(flat.map((m) => [m.mbox + ":" + m.uid, m]));
     eventsDirty = true;
@@ -554,6 +570,7 @@
     checkCache = [];
     for (const m of flat) {
       if (m.ts < since) break;
+      if (m.sent) continue;
       const chk = (deadlineCache[m.mbox + ":" + m.uid] || []).find((d) => d.type === "check");
       if (chk && m.ts > Date.now() - 45 * DAY && (m.course || (/moodle/i.test(m.email + " " + m.from) && !m.detected)))
         checkCache.push({ id: "chk:" + m.mbox + ":" + m.uid, m, course: m.course, title: cleanSubject(m.subj) || m.subj, detail: chk.label });
@@ -624,7 +641,7 @@
     try {
       const now = Date.now();
       // your course mails first (they hold the quiz and deadline dates), going back 60 days; then other recent mail
-      const fresh = (m) => !(m.mbox + ":" + m.uid in deadlineCache) && !mutedTags.has(m.tag);
+      const fresh = (m) => !m.sent && !(m.mbox + ":" + m.uid in deadlineCache) && !mutedTags.has(m.tag);
       const courseMail = (m) => m.course || (/moodle/i.test(m.email + " " + m.from) && !m.detected);
       const todo = flat.filter((m) => m.ts > now - 60 * DAY && courseMail(m) && fresh(m)).slice(0, 200)
         .concat(flat.filter((m) => m.ts > now - 30 * DAY && !courseMail(m) && fresh(m)
@@ -720,8 +737,9 @@
       const known = byKey.get(mbox + ":" + uid);
       if (known) { out.push({ ...known, body: true }); continue; }
       const [subj, from, ts, seen, att, email] = rowFrom(r);
-      const m = { mbox, uid, subj, from, ts, seen, att, email, course: courseOf(subj, from), tag: listTag(subj), body: true };
-      m.cat = categoryOf(m);
+      const sent = isSentBox(mbox);
+      const m = { mbox, uid, subj, from, ts, seen, att, email, course: sent ? "" : courseOf(subj, from), tag: sent ? "" : listTag(subj), body: true, sent };
+      m.cat = sent ? "sent" : categoryOf(m);
       out.push(m);
     }
     return out;
@@ -904,12 +922,12 @@
     if (view.unread) f.unread = true;
     if (view.att) f.att = true;
     if (view.flagged) f.flagged = true;
-    const hideMuted = settings.hideMuted && view.cat !== "notice" && !view.q && !view.comp && !view.flagged;
-    let rows = flat.filter((m) => (view.cat === "all" || m.cat === view.cat) && (!view.course || m.course === view.course) && (!view.comp || m.comp)
+    const hideMuted = settings.hideMuted && view.cat !== "notice" && !view.q && !view.comp && !view.flagged && !view.intern;
+    let rows = flat.filter((m) => (view.cat === "all" ? view.q || !m.sent : m.cat === view.cat) && (!view.course || m.course === view.course) && (!view.comp || m.comp) && (!view.intern || (m.intern && (view.intern === true || m.intern === view.intern)))
       && !(hideMuted && mutedTags.has(m.tag)) && matches(m, f));
     if (view.q && bodies.q === view.q && bodies.rows) {
       const have = new Set(rows.map((m) => m.mbox + ":" + m.uid));
-      rows = rows.concat(bodies.rows.filter((m) => !have.has(m.mbox + ":" + m.uid) && (view.cat === "all" || m.cat === view.cat)))
+      rows = rows.concat(bodies.rows.filter((m) => !have.has(m.mbox + ":" + m.uid) && (view.cat === "all" ? view.q || !m.sent : m.cat === view.cat)))
         .sort((a, b) => b.ts - a.ts || +b.uid - +a.uid);
     }
     return { rows, f };
@@ -917,7 +935,7 @@
 
   function rowHtml(m, i, hl) {
     return `<div class="bs-r${m.seen ? "" : " bs-u"}${i === sel ? " sel" : ""}" data-i="${i}">${avatar(m.from)}
-      <div class="bs-c"><div class="bs-t"><span>${hl(m.from)}</span><span>${showDate(m.ts)}</span></div>
+      <div class="bs-c"><div class="bs-t"><span>${m.sent ? "To: " : ""}${hl(m.from)}</span><span>${showDate(m.ts)}</span></div>
       <div class="bs-s">${hl(m.subj || "(no subject)")}</div>
       <div class="bs-tags">${m.course && !view.course ? courseChip(m.course) : ""}${m.att ? '<span class="bs-chip" style="margin:0">Files</span>' : ""}${m.mbox !== "INBOX" ? `<span class="bs-chip" style="margin:0">${esc(m.mbox)}</span>` : ""}${m.body ? '<span class="bs-chip" style="margin:0">in body</span>' : ""}</div>
       ${view.mode === "attachments" ? `<div class="bs-act"><a data-files="${i}">Show files</a></div><ul class="bs-files" data-fl="${i}"></ul>` : ""}
@@ -952,7 +970,7 @@
     if (view.q) foot.push('<a data-native title="the webmail\'s own search">Use webmail search</a>');
       panel.innerHTML = `<div class="bs-h"><div class="bs-h1">${view.course ? `<span class="bs-cdot" style="width:9px;height:9px;border-radius:50%;background:${colorOf(view.course)}"></span>` : ""}<b>${title}</b><button class="bs-x" title="Close (Esc)">×</button></div>
       <div class="bs-meta">${meta}</div>
-      <div class="bs-chips">${view.course || view.comp || view.flagged ? "" : chip("all", "All", view.cat === "all") + chip("course", "Courses", view.cat === "course") + chip("notice", "Notices", view.cat === "notice") + chip("people", "People", view.cat === "people")}${chip("unread", "Unread", view.unread)}${chip("att", "Files", view.att)}</div>
+      <div class="bs-chips">${view.intern ? chip("iall", "All", view.intern === true) + chip("isummer", "Summer", view.intern === "summer") + chip("iwinter", "Winter", view.intern === "winter") : view.course || view.comp || view.flagged ? "" : chip("all", "All", view.cat === "all") + chip("course", "Courses", view.cat === "course") + chip("notice", "Notices", view.cat === "notice") + chip("people", "People", view.cat === "people") + (view.q ? chip("sent", "Sent", view.cat === "sent") : "")}${chip("unread", "Unread", view.unread)}${chip("att", "Files", view.att)}</div>
       ${status.building ? `<div class="bs-bar"><i style="width:${pct}%"></i></div>` : ""}</div>
       <div class="bs-list">${courseEv.length ? `<div class="bs-group">Coming up</div>` + courseEv.map((e) => evCard(e, "c" + allEvents().indexOf(e))).join("") + '<div class="bs-group">All mails</div>' : ""}${list}</div>
       ${foot.length ? `<div class="bs-foot">${foot.join("")}</div>` : ""}`;
@@ -965,6 +983,7 @@
       const k = b.dataset.chip;
       if (k === "unread") view.unread = !view.unread;
       else if (k === "att") view.att = !view.att;
+      else if (k[0] === "i" && view.intern) view.intern = k === "iall" ? true : k.slice(1);
       else { view.cat = k; view.course = ""; view.title = { all: "", course: "Courses", notice: "Notices", people: "People" }[k] || (view.q ? "" : view.title); }
       sel = -1; renderPanel(); renderSide();
     }));
@@ -1143,6 +1162,7 @@
     book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>',
     bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    brief: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18"/>',
     trophy: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
     inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
     clip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
@@ -1166,10 +1186,10 @@
     const courseList = mine ? [...mine].sort().map((c) => [c, detectedCourses.get(c) || { n: 0, u: 0 }])
       : [...detectedCourses.entries()].filter(([, c]) => c.n >= 2 && c.last > recent).sort((a, b) => a[0].localeCompare(b[0]));
     const count = (pred) => flat.reduce((n, m) => n + (pred(m) ? 1 : 0), 0);
-    const unread = (cat) => count((m) => !m.seen && (!cat || m.cat === cat) && !(settings.hideMuted && cat !== "notice" && mutedTags.has(m.tag)));
+    const unread = (cat) => count((m) => !m.seen && !m.sent && (!cat || m.cat === cat) && !(settings.hideMuted && cat !== "notice" && mutedTags.has(m.tag)));
     const isOn = (k, course) => !!view && ((k === "calendar" && view.mode === "calendar") || (k === "attachments" && view.mode === "attachments")
-      || (k === "comp" && view.comp) || (k === "flagged" && view.flagged) || (k === "unread" && view.unread && !view.q && view.cat === "all")
-      || (course ? view.course === course : view.mode === "list" && !view.q && !view.course && !view.unread && !view.comp && !view.flagged && view.cat === k));
+      || (k === "comp" && view.comp) || (k === "intern" && view.intern) || (k === "flagged" && view.flagged) || (k === "unread" && view.unread && !view.q && view.cat === "all")
+      || (course ? view.course === course : view.mode === "list" && !view.q && !view.course && !view.unread && !view.comp && !view.flagged && !view.intern && view.cat === k));
     const item = (key, icon, bg, label, n, u, course = "") => `<div class="bs-i${isOn(key, course) ? " on" : ""}" data-v="${key}" ${course ? `data-course="${esc(course)}"` : ""}>
       ${icon ? `<svg class="ic" viewBox="0 0 24 24">${ICONS[icon]}</svg>` : bg ? `<span class="bs-cdot" style="background:${bg}"></span>` : ""}<span class="n">${esc(label)}</span>${u ? `<span class="c u">${u}</span>` : n ? `<span class="c">${n}</span>` : ""}</div>`;
     const soon = upcoming(21);
@@ -1178,10 +1198,11 @@
     const tagList = [...tags.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
     side.innerHTML = `
       <h4><span>Smart views</span><a data-help title="Shortcuts and search tips">?</a></h4>
-      ${item("flagged", "flag", null, "Flagged", count((m) => m.flagged), 0)}
+      ${item("flagged", "flag", null, "Flagged", count((m) => m.flagged && !m.sent), 0)}
       ${item("course", "book", null, "Courses", 0, unread("course"))}
       ${item("notice", "bell", null, "Notices", 0, unread("notice"))}
       ${item("people", "user", null, "People", 0, unread("people"))}
+      ${INTERNSHIPS ? item("intern", "brief", null, "Internships", count((m) => m.intern), count((m) => m.intern && !m.seen)) : ""}
       ${item("comp", "trophy", null, "Competitions", 0, count((m) => m.comp && !m.seen))}
       ${item("unread", "inbox", null, "All unread", 0, unread())}
       ${item("attachments", "clip", null, "Files", 0, 0)}
@@ -1205,6 +1226,7 @@
       else if (v === "attachments") openView({ mode: "attachments", att: true, title: "Files" });
       else if (v === "unread") openView({ unread: true, title: "All unread" });
       else if (v === "comp") openView({ comp: true, title: "Competitions" });
+      else if (v === "intern") openView({ intern: true, title: "Internships" });
       else if (v === "flagged") openView({ flagged: true, title: "Flagged" });
       else if (v === "courseX") openView({ cat: "course", course: el.dataset.course, title: el.dataset.course });
       else openView({ cat: v, title: { course: "Courses", notice: "Notices", people: "People" }[v] });
@@ -1353,7 +1375,7 @@
       const q = input.value.trim();
       if (q.length < 2) { if (view && view.q) closePanel(); return; }
       if (view && view.mode === "list" && view.q) { view.q = q; sel = -1; renderPanel(); }
-      else openView({ q });
+      else openView({ q, cat: isSentBox(rcmail.env.mailbox) ? "sent" : "all" });
       if (!flat.length) refreshIndex();
     }, 120);
   }, true);
@@ -1376,7 +1398,7 @@
       e.preventDefault(); e.stopImmediatePropagation();
       if (!q) return closePanel();
       if (open && sel >= 0 && view.q === q) return pick(sel);
-      if (!(view && view.mode === "list" && view.q)) openView({ q }); else { view.q = q; renderPanel(); }
+      if (!(view && view.mode === "list" && view.q)) openView({ q, cat: isSentBox(rcmail.env.mailbox) ? "sent" : "all" }); else { view.q = q; renderPanel(); }
       bodies = { q, rows: null };
       renderPanel();
       refreshIndex();
@@ -1392,7 +1414,7 @@
     if (Date.now() - gPending < 1200) {
       gPending = 0;
       const go = { u: () => openView({ unread: true, title: "All unread" }), c: () => openView({ cat: "course", title: "Courses" }),
-        n: () => openView({ cat: "notice", title: "Notices" }), x: () => openView({ comp: true, title: "Competitions" }), f: () => openView({ flagged: true, title: "Flagged" }), p: () => openView({ cat: "people", title: "People" }),
+        n: () => openView({ cat: "notice", title: "Notices" }), x: () => openView({ comp: true, title: "Competitions" }), i: () => INTERNSHIPS && openView({ intern: true, title: "Internships" }), f: () => openView({ flagged: true, title: "Flagged" }), p: () => openView({ cat: "people", title: "People" }),
         d: () => openCalendar(), a: () => openView({ mode: "attachments", att: true, title: "Files" }) }[e.key];
       if (go) { e.preventDefault(); go(); }
     }
